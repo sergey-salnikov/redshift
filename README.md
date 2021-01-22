@@ -1,3 +1,15 @@
+Bad hack
+========
+
+This is a version of Redshift that "fixes" jonls/redshift#741 for my
+use case, exactly following
+[advice](https://github.com/jonls/redshift/issues/741#issuecomment-731905416)
+by @whatisaphone. That is, it works on my multimonitor Windows 10
+machine in the `-P -O` mode, but it probably always works like with
+`-P` because `GetDeviceGammaRamp` broke just like `SetDeviceGammaRamp`
+and I'm too lazy to fix that properly.
+
+Continuing with the original README.
 
 Redshift
 ========

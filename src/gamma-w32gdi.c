@@ -81,22 +81,6 @@ w32gdi_start(w32gdi_state_t *state)
 		return -1;
 	}
 
-	/* Allocate space for saved gamma ramps */
-	state->saved_ramps = malloc(3*GAMMA_RAMP_SIZE*sizeof(WORD));
-	if (state->saved_ramps == NULL) {
-		perror("malloc");
-		ReleaseDC(NULL, hDC);
-		return -1;
-	}
-
-	/* Save current gamma ramps so we can restore them at program exit */
-	r = GetDeviceGammaRamp(hDC, state->saved_ramps);
-	if (!r) {
-		fputs(_("Unable to save current gamma ramp.\n"), stderr);
-		ReleaseDC(NULL, hDC);
-		return -1;
-	}
-
 	/* Release device context */
 	ReleaseDC(NULL, hDC);
 
@@ -139,38 +123,37 @@ w32gdi_set_option(w32gdi_state_t *state, const char *key, const char *value)
 static void
 w32gdi_restore(w32gdi_state_t *state)
 {
-	/* Open device context */
-	HDC hDC = GetDC(NULL);
-	if (hDC == NULL) {
-		fputs(_("Unable to open device context.\n"), stderr);
-		return;
-	}
+}
 
-	/* Restore gamma ramps */
+static BOOL
+w32gdi_set_monitor_temperature(
+	HMONITOR hMonitor, HDC hDC, LPRECT rect, LPARAM arg)
+{
+	WORD *gamma_ramps = (WORD *) arg;
+
 	BOOL r = FALSE;
 	for (int i = 0; i < MAX_ATTEMPTS && !r; i++) {
 		/* We retry a few times before giving up because some
 		   buggy drivers fail on the first invocation of
 		   SetDeviceGammaRamp just to succeed on the second. */
-		r = SetDeviceGammaRamp(hDC, state->saved_ramps);
+		r = SetDeviceGammaRamp(hDC, gamma_ramps);
 	}
-	if (!r) fputs(_("Unable to restore gamma ramps.\n"), stderr);
+	if (!r) {
+		fputs(_("Unable to set gamma ramps.\n"), stderr);
+	}
 
-	/* Release device context */
-	ReleaseDC(NULL, hDC);
+	return TRUE;
 }
 
 static int
 w32gdi_set_temperature(
 	w32gdi_state_t *state, const color_setting_t *setting, int preserve)
 {
-	BOOL r;
-
 	/* Open device context */
 	HDC hDC = GetDC(NULL);
 	if (hDC == NULL) {
 		fputs(_("Unable to open device context.\n"), stderr);
-		return -1;
+		return 0;
 	}
 
 	/* Create new gamma ramps */
@@ -185,38 +168,21 @@ w32gdi_set_temperature(
 	WORD *gamma_g = &gamma_ramps[1*GAMMA_RAMP_SIZE];
 	WORD *gamma_b = &gamma_ramps[2*GAMMA_RAMP_SIZE];
 
-	if (preserve) {
-		/* Initialize gamma ramps from saved state */
-		memcpy(gamma_ramps, state->saved_ramps,
-		       3*GAMMA_RAMP_SIZE*sizeof(WORD));
-	} else {
-		/* Initialize gamma ramps to pure state */
-		for (int i = 0; i < GAMMA_RAMP_SIZE; i++) {
-			WORD value = (double)i/GAMMA_RAMP_SIZE *
-				(UINT16_MAX+1);
-			gamma_r[i] = value;
-			gamma_g[i] = value;
-			gamma_b[i] = value;
-		}
+	/* Initialize gamma ramps to pure state */
+	for (int i = 0; i < GAMMA_RAMP_SIZE; i++) {
+		WORD value = (double)i/GAMMA_RAMP_SIZE *
+			(UINT16_MAX+1);
+		gamma_r[i] = value;
+		gamma_g[i] = value;
+		gamma_b[i] = value;
 	}
 
 	colorramp_fill(gamma_r, gamma_g, gamma_b, GAMMA_RAMP_SIZE,
 		       setting);
 
 	/* Set new gamma ramps */
-	r = FALSE;
-	for (int i = 0; i < MAX_ATTEMPTS && !r; i++) {
-		/* We retry a few times before giving up because some
-		   buggy drivers fail on the first invocation of
-		   SetDeviceGammaRamp just to succeed on the second. */
-		r = SetDeviceGammaRamp(hDC, gamma_ramps);
-	}
-	if (!r) {
-		fputs(_("Unable to set gamma ramps.\n"), stderr);
-		free(gamma_ramps);
-		ReleaseDC(NULL, hDC);
-		return -1;
-	}
+	EnumDisplayMonitors(hDC, NULL, w32gdi_set_monitor_temperature,
+			    (LPARAM) gamma_ramps);
 
 	free(gamma_ramps);
 
